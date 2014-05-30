@@ -1,7 +1,7 @@
 -module(circle).
 -export([create/2, loop/0]).
 
-create(Num, _) when Num < 3 -> 
+create(Num, _) when Num < 2 ->
     io:format("Can not create a circle with less than 3 nodes~n"); 
 create(_, Repeat) when Repeat < 1 ->
     io:format("Can not send less then 1 message");
@@ -19,50 +19,46 @@ create_process(Num, Acc) ->
     create_process(Num -1, Acc ++ [Pid]).
 
 loop() ->
-  timer:sleep(100),
+  timer:sleep(1000),
     receive
-        %% case first node, last one to receive kill and die
-        {kill, FirstPid, _, 0} when self() == FirstPid ->
-            kill_process(self());
-
-        %% case first node, first to send KILL cmd to others
-        {_, FirstPid, [PidToSend | OtherPid], 0} when self() == FirstPid ->
-            io:format("First process, begin circle #kill ~n"),
-            send_to_next_process(kill, FirstPid, PidToSend, OtherPid, 0);
+        %% case first node, receive last message -> die
+        {send, FirstPid, _, 0} when self() == FirstPid ->
+            io:format("Kill process ~p~n", [self()]);
 
         %% case first node, first to send a message to others
-        {Message, FirstPid, [PidToSend | OtherPid], Repeat} when self() == FirstPid -> 
+        {send, FirstPid, [PidToSend | OtherPid], Repeat} when self() == FirstPid ->
             io:format("First process, begin circle #~p ~n", [Repeat]),
-            send_to_next_process(Message, FirstPid, PidToSend, OtherPid, Repeat);
+            io:format("~p send message #~p to ~p~n", [self(), Repeat, PidToSend]),
+            PidToSend ! {send, FirstPid, OtherPid ++ [self()], Repeat},
+            loop();
 
-        %% case last node
-        {Message, FirstPid, [PidToSend | OtherPid], Repeat} when FirstPid == PidToSend ->
-            process_message(Message, FirstPid, PidToSend, OtherPid, Repeat - 1);
+         %% case last node last loop -> die
+        {send, FirstPid, [PidToSend | OtherPid], 1} when FirstPid == PidToSend ->
+          PidToSend ! {send, FirstPid, OtherPid ++ [self()], 0},
+          io:format("~p send message #~p to ~p~n", [self(), 1, PidToSend]),
+          io:format("Kill process ~p~n", [self()]);
 
-        %% case node lambda, not first one, not last one
-        {Message, FirstPid, [PidToSend | OtherPid], Repeat} ->
-            process_message(Message, FirstPid, PidToSend, OtherPid, Repeat);
+         %% case last node -> loop
+        {send, FirstPid, [PidToSend | OtherPid], Repeat} when FirstPid == PidToSend ->
+            PidToSend ! {send, FirstPid, OtherPid ++ [self()], Repeat - 1},
+            io:format("~p send message #~p to ~p~n", [self(), Repeat, PidToSend]),
+            loop();
+
+        %% case node lambda, last loop -> die
+        {send, FirstPid, [PidToSend | OtherPid], 1} ->
+            PidToSend ! {send, FirstPid, OtherPid ++ [self()], 1},
+            io:format("~p send message #~p to ~p~n", [self(), 1, PidToSend]),
+            io:format("Kill process ~p~n", [self()]);
+
+        %% case node lambda, not first one, not last one -> loop
+        {send, FirstPid, [PidToSend | OtherPid], Repeat} ->
+            PidToSend ! {send, FirstPid, OtherPid ++ [self()], Repeat},
+            io:format("~p send message #~p to ~p~n", [self(), Repeat, PidToSend]),
+            loop();
+
         Other ->
             io:format("Bad args in receive loop: ~p~n", [Other])
-    end,
-    loop().
-
-process_message(Message, FirstPid, PidToSend, OtherPid, Repeat) ->
-    case Message of
-        kill ->
-          send_to_next_process(kill, FirstPid, PidToSend, OtherPid, 0),
-          kill_process(self());
-        send ->
-          send_to_next_process(send, FirstPid, PidToSend, OtherPid, Repeat)
     end.
 
-send_to_next_process(Message, FirstPid, PidToSend, OtherPid, Repeat) ->
-    io:format("~p send '~p' message to ~p~n", [self(), Message, PidToSend]),
-    PidToSend ! {Message, FirstPid, OtherPid ++ [self()], Repeat}.
-
-kill_process(Pid) ->
-  timer:sleep(1000),
-  io:format("Kill process ~p~n", [Pid]),
-  exit(reason).
 
 
